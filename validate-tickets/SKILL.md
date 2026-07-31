@@ -1,6 +1,7 @@
 ---
 name: validate-tickets
-description: Use when the user wants to verify that the tickets produced by the `/to-spec` or `/to-tickets` skills are well-formed and ready for implementation, asks whether the tracker is in a consistent state, or asks whether a planned ticket is a vertical slice. The skill audits every open ticket against the ticket invariants in `INVARIANTS.md`, produces a gap map of (current state) vs (should-be state), and asks the user before refactoring any tickets.
+description: Audits every open ticket in a Wayfinder tracker against the invariants in INVARIANTS.md and produces a gap map before any refactor.
+disable-model-invocation: true
 ---
 
 # validate-tickets
@@ -20,7 +21,7 @@ The skill is **comprehensive**: every invariant is applied to every open ticket,
 
 3. **Build a gap map** as a single Markdown table with columns: `Ticket`, `Invariant`, `Status`, `Current`, `Should-be`. Group rows by ticket for human reading. Order invariants in the same order they appear in `INVARIANTS.md`.
 
-4. **Score the tracker** by invariant — count `pass`, `gap`, `n/a` per invariant. Surface the invariant with the most gaps as the dominant issue. If the dominant invariant is body staleness or live-edge staleness, the report must include a `Tracer bullet` note calling out which tickets will mislead an agent on takeoff.
+4. **Score the tracker** by invariant — count `pass`, `gap`, `n/a` per invariant. Surface the invariant with the most gaps as the dominant issue. If the dominant invariant is a body-staleness or live-edge-staleness invariant, the report must include a `Tracer bullet` note calling out which tickets will mislead an agent on takeoff.
 
 5. **Ask before refactoring.** Present a `## Open question` to the user with three explicit options: (a) report-only — produce the gap map and stop; (b) refactor-this-invariant-only — fix the dominant issue and re-audit; (c) refactor-all-gaps — fix everything the gap map found, but ask for confirmation per ticket category (rename, parent rewire, edge rebuild, body scrub, ticket close-as-duplicate). Default is **report-only**; never mutate without explicit human approval.
 

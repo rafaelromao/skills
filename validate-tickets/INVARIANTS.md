@@ -1,10 +1,12 @@
 # Ticket Invariants
 
-The **single source of truth** for what a well-formed ticket is. Every ticket a planner publishes — whether by `/to-spec`, `/to-tickets`, or hand — must satisfy every invariant below. The list is ordered: a tracer-bullet failure (Invariant 1) is the worst; a title-prefix drift (Invariant 8) is the cheapest to fix but a sign the audit ran lazily.
+The **single source of truth** for what a well-formed ticket is. Every ticket a planner publishes — whether by `/to-spec`, `/to-tickets`, or hand — must satisfy every invariant below. The list is ordered: a tracer-bullet failure (Invariant 1) is the worst; a title-classification drift (Invariant 8) is the cheapest to fix but a sign the audit ran lazily.
 
 Every invariant is **checkable** — the validator can ask the live tracker a single question and decide pass / gap / n/a. Every invariant is **exhaustive** — every open ticket is checked, not a sample. The pair matters: a checkable-but-not-exhaustive invariant is an audit that declares done after one ticket; an exhaustive-but-not-checkable invariant is hand-waving.
 
 The invariants are referenced from the planner skills (`/to-spec`, `/to-tickets`) so they prevent these failures at creation time, not just catch them later.
+
+Every invariant is also **parser-compatible**: the body shapes it requires match what the consumer-side resolver recognises (dependency resolution, specification expansion, acceptance-criteria parsing). A body the validator passes is one the consumer can also read without guessing. Inline phrases and off-heading references are explicitly rejected because the consumer treats them as incidental prose, not authoritative declarations.
 
 ---
 
@@ -22,7 +24,7 @@ A ticket's `## What to build` and `## Demoable behavior` together describe a com
 
 The ticket belongs to exactly one parent sub-spec. Its live `issue_dependencies_summary.blocked_by` edges only point at **siblings of the same sub-spec**, except for tickets whose sub-spec is a rehearsal sub-spec (which legitimately cross areas). The tracker will enforce this; the body must reflect it.
 
-**Check.** For every ticket except a root spec or rehearsal sub-spec, all live blockers share the same `sub-spec` as the ticket itself. The body's `## Part of #<n>` heading references an open issue whose body is a sub-spec for the ticket's area.
+**Check.** For every ticket except a root spec or rehearsal sub-spec, all live blockers share the same `sub-spec` as the ticket itself. The body's parent reference (Invariant 5) names an open issue whose body is a sub-spec for the ticket's area.
 
 **Example.** A ticket labelled with area A that has live blockers in areas B, C, D — that ticket is a multi-area rehearsal slice and lives in the rehearsal area, not in A.
 
@@ -46,21 +48,43 @@ The `## Demoable behavior` section says **what the slice makes work for the user
 
 ---
 
-## 5. Body `## Part of #<n>` points at the live sub-spec
+## 5. Body references its live parent spec
 
-The body's `## Part of #<n>` heading points at the ticket's actual sub-spec, not at a closed parent-area wrapper or a no-longer-current spec area. The sub-spec referenced is open.
+The body references the ticket's live parent spec — the immediate sub-spec for a leaf, or the root spec for a sub-spec. The reference must use a heading the consumer-side parser recognises so a resolver can read it without inline-phrase guessing.
 
-**Check.** Read the body's `## Part of #<n>` line. Resolve the number to a live issue. The live issue's body must be a sub-spec (the `documentation` label or a sub-spec pattern in its title).
+Accepted heading shapes (case-insensitive substring match on the heading text):
 
-**Example.** A leaf that points at a closed parent-area wrapper instead of the live sub-spec misleads every agent that reads the body.
+- Any H2 whose heading contains the word `parent` (`## Parent`, `## Parent area`, `## Parent spec`).
+- Any H2 whose heading starts with `Part of` (`## Part of #<n>`).
+- Any H2 whose heading contains the words `Sub-spec of` or `Sub-issue of`.
+
+The heading body is `#<n>`, optionally preceded by a label, optionally with one trailing comment line. Reference forms accepted inside the heading body:
+
+- `#<n>` shorthand.
+- Full `/issues/<n>` URL.
+- `[<text>](https://.../issues/<n>)` titled link.
+
+The heading must resolve to an open issue that lies on the path from the ticket up to the root spec. Prose `see #<n>` mentions in `## Planning context` are an acceptable alternative when no heading is used; the consumer-side parent-section matcher picks them up too.
+
+**Check.** Find every parent-reference heading or prose mention. Resolve each to a live issue. Every referenced issue must be open and must lie on the parent path. A reference to a closed parent-area wrapper, a no-longer-current spec area, or any issue off the parent path is a gap.
+
+**Example.** A leaf whose body uses `## Part of #N` where N is a closed parent-area wrapper instead of the live sub-spec id misleads every agent that reads the body.
 
 ---
 
 ## 6. `## Blocked by` body matches the live dependency graph
 
-The body's `## Blocked by` block lists exactly the issues returned by the live `/dependencies/blocked_by` endpoint, with `(open)` or `(closed)` state shown. None of those entries point at closed superseded tickets.
+The body lists every blocker the consumer-side resolver needs, under a heading it can recognise. The heading must be one of `## Blocked by`, `## Depends on`, or `## Blocked-by` (case-insensitive, leading whitespace tolerated). Body entries under the heading are one of:
 
-**Check.** Parse the `## Blocked by` block, extract every `#<n>` mention, compare against the live blockers list. Any mismatch is a gap.
+- `- #<n>` bare bullet.
+- `- [#<n>](https://.../issues/<n>)` link bullet.
+- `- [<text>](https://.../issues/<n>)` titled link, with optional trailing annotation. The bullet prefix is required when the titled link carries a trailing annotation.
+- `[<text>](https://.../issues/<n>)` titled link on a line by itself (no bullet, no annotation).
+- Table-row equivalents inside a markdown table when the row carries `- [ ]`-style entries.
+
+The list must equal the live `/dependencies/blocked_by` endpoint response, with `(open)` or `(closed)` state shown for each entry. **Inline phrases** such as `Blocked by #123`, `Depends on #123`, or `Child Issues: #123` outside an explicit heading are NOT recognised by the resolver and constitute a gap; they frequently appear in prose mentions inside child-list annotations like `- #10 (blocked by #2319)` and treating them as authoritative makes unrelated parents appear blocked.
+
+**Check.** Confirm the blocker heading uses one of the three accepted H2 names. Parse the heading body using the accepted entry shapes; extract every `#<n>` mention. Compare against the live blockers list. Any mismatch is a gap. Inline prose mentions of blockers outside the heading are gaps.
 
 **Why this invariant exists.** Stale blocker lists are the most common way an agent misreads the foundation frontier. The body must be regenerated whenever the live graph changes; the planner skills should never produce a body whose `## Blocked by` is hand-written.
 
@@ -96,19 +120,61 @@ The ticket body and title do not present a horizontal layer-cake slice. The forb
 
 ---
 
-## 10. No closed superseded ids referenced in body
+## 10. Reachable from the root spec
 
-The body must not mention `#NN` where `NN` belongs to the closed-superseded set for this tracker. The validator computes the set live from `state=closed` + `duplicate` label (or whatever convention the tracker uses to mark tickets closed-as-superseded).
+Every ticket except the Wayfinder map and the root spec is reachable by walking the parent-reference chain (Invariant 5) from the root spec through open sub-specs. Orphan tickets (no parent reference, or the parent reference is closed) are gaps.
 
-**Check.** Compute the closed-superseded set. Regex-find every `#\d{2,4}` in the body. Any hit is a gap. The fix is a swap (`#<superseded>` → `#<sub-spec>`) or a delete, never a re-open.
+**Check.** Build the open sub-spec graph from every parent reference. For every open ticket, walk from the ticket's parent to the root spec. Tickets with no path are gaps. The fix is either adding a parent reference or closing the orphan as a duplicate.
 
 ---
 
-## 11. Reachable from the root spec
+## 11. Body references its live children (parent back-reference)
 
-Every ticket except the Wayfinder map and the root spec is reachable by walking `## Part of #<n>` from the root spec through a chain of open sub-specs. Orphan tickets (no parent sub-spec, or the parent sub-spec is closed) are gaps.
+A spec, sub-spec, or any ticket that has children must list every live child via one of the accepted forms the consumer-side parser recognises. Each form must use the canonical heading vocabulary and entry shapes; inline prose mentions of children outside an explicit heading are NOT recognised.
 
-**Check.** Build the open sub-spec graph from every `## Part of #<n>` heading. For every open ticket, walk from the ticket's parent to the root spec. Tickets with no path are gaps. The fix is either adding a `## Part of` heading or closing the orphan as a duplicate.
+Accepted parent-to-child forms:
+
+- **Body heading.** Any H2 whose heading contains the word `child` or `children` (case-insensitive substring), e.g. `## Children`, `## Child Issues`, `## Leaf children`, `## Children in this area`, `## Sub-children`. The heading body is either a markdown table or a bullet list of entries using the canonical shapes from Invariant 6 (`- #<n>`, link bullet, titled link with trailing annotation after bullet prefix).
+- **GitHub sub-issue link.** The tracker's `/repos/{o}/{r}/issues/{n}/sub_issues` endpoint, when enabled.
+- **Comment with `#<n>` references.** The tracker's `/repos/{o}/{r}/issues/{n}/comments` endpoint, when neither body nor sub-issues work. Each child must appear as a `#<n>` reference in at least one comment.
+
+For a sub-spec the children are its leaf slices; for a Wayfinder map the children are its planning tickets; for a root spec the children are its area sub-specs. Whatever the parent's role in the hierarchy, the listed children must equal the live children of this parent. Any child reference in the body that falls under a `## Blocked by`/`## Depends on`/`## Blocked-by` heading, or under a parent-reference heading (`## Parent`/`## Part of`), is NOT counted as a child — the consumer skips blocker and parent sections when harvesting children.
+
+**Check.** Determine the parent's expected children. Compare against the three forms above. If the body table, the sub-issue field, and the comment harvest are all empty, the parent fails this invariant. If either form lists a child that is closed or off the parent path, the parent fails. If a live child is missing from every form, the parent fails.
+
+**Why this invariant exists.** A parent that doesn't list its children breaks the agent takeoff: a leaf can be correctly referenced from the root, but the root can't reconstruct its child tree. The three accepted forms match what the consumer's children harvest recognises; the validator accepts any of them, so the planner can pick the convention that fits the tracker.
+
+**Example.** A root spec that lists `#N1..#Nk` in its `## Children` table but forgets to mention a live sub-spec `#Nx` ships a child the planner thinks doesn't exist. The validator catches it.
+
+---
+
+## 12. No off-heading issue references in body
+
+The body must not contain recognisable issue references (`#<n>` shorthand or `/issues/<n>` URL) outside an accepted heading — specifically, outside the parent-reference headings (Invariant 5), the children-list headings (Invariant 11), and the blocker headings (Invariant 6).
+
+**Check.** Parse the body into H2 sections using the same walker the consumer uses. For every reference found outside a recognised parent/children/blocker heading, mark it. The reference is allowed only inside one of those headings or inside `## Planning context` (which the consumer treats as prose, not as an authoritative declaration).
+
+**Why this invariant exists.** The consumer deliberately ignores inline phrases such as `Blocked by #123` or `Children: #123` outside a heading — they are incidental prose mentions across the tracker. Treating them as authoritative made unrelated parents appear blocked or made child counts balloon. A ticket body that puts references outside the heading vocabulary is one the consumer cannot read; the validator flags it so the planner can move the reference under a heading.
+
+---
+
+## 13. Canonical Specification body (parents only)
+
+A ticket that has children and is intended to be a Specification carries the canonical body shape the consumer's `IsSpecification` recognises: both `## Problem Statement` and `## Solution` H2 headings (case-insensitive, leading whitespace tolerated). Either heading alone is not enough — a lone `## Solution` heading in an ordinary issue must not be mistaken for a Specification. `## User Stories` is presentation and does not contribute to the canonical-shape signal.
+
+**Check.** For any ticket that lists children in its body (Invariant 11), confirm both `## Problem Statement` and `## Solution` headings are present. The check is `n/a` for tickets without children.
+
+**Why this invariant exists.** The consumer's Specification detector scans the canonical shape **after** the children-list probe. A parent that lists children but lacks the canonical shape is still detected (via the children probe) and still expands correctly. The canonical shape exists so that an agent reading the parent body sees the contract the consumer will treat it as. A parent that has children AND carries the canonical shape is detectable by both probes; a parent that has children but lacks the canonical shape is detectable only by the children probe — both are valid, but the former is the convention the consumer's `## Parent` → children path expects.
+
+---
+
+## 14. Acceptance criteria use the canonical H2 + checkbox shape
+
+When the ticket declares acceptance criteria, the body carries them under `## Acceptance criteria` H2 with `- [ ]` (or `- [x]`) checkbox bullets. Each bullet line is a runnable assertion the consumer's T1 oracle parses for `go test -run` (or analogous test invocation) shape.
+
+**Check.** If the body contains a `## Acceptance criteria` heading, every entry under it is a `- [ ]` or `- [x]` bullet. If the body does not contain the heading but the ticket declares any acceptance criteria anywhere, the validator reports a gap. The check is `n/a` if the ticket declares no acceptance criteria.
+
+**Why this invariant exists.** The consumer parses the AC section with a heading-only contract; off-heading ACs are not seen, so the T1 oracle cannot run them. Forcing the canonical shape keeps tickets consistent across planners.
 
 ---
 
@@ -120,12 +186,15 @@ Every ticket except the Wayfinder map and the root spec is reachable by walking 
 | 2 | Single area | Cross-area dependencies; orphan-area tickets |
 | 3 | Sized for a single 400k-token context | Tickets that exceed one context window |
 | 4 | Demoable behavior, not layer-by-layer | Code-surface descriptions |
-| 5 | `## Part of` points at live sub-spec | Stale parent references |
-| 6 | `## Blocked by` body matches live graph | Stale blocker lists; dead-blocker illusion |
+| 5 | Body references live parent spec | Stale or wrong parent references; non-parser headings |
+| 6 | `## Blocked by` body matches live graph | Stale blocker lists; inline-phrase false positives |
 | 7 | Live edges are foundation-correct | Dead edges; cross-area edges on non-rehearsal |
 | 8 | Title classification matches parent sub-spec | Stale title markers after a rename |
 | 9 | No horizontal-decomposition pattern | "Phase 1/2/3" or "01a/01b/01c" titles or bodies |
-| 10 | No closed superseded ids referenced | Body mentions of closed duplicates |
-| 11 | Reachable from the root spec | Orphan tickets with no parent sub-spec |
+| 10 | Reachable from the root spec | Orphan tickets with no parent sub-spec |
+| 11 | Body references live children | Parents with stale or missing child lists; non-parser headings |
+| 12 | No off-heading issue references | Prose mentions of `#<n>` outside canonical headings |
+| 13 | Canonical Specification body (parents only) | Parents missing `## Problem Statement` + `## Solution` |
+| 14 | Acceptance criteria use canonical H2 + checkbox | ACs declared off-heading or in non-canonical shapes |
 
 When the validator reports gaps, the table above is the legend: each row tells you the failure mode, the check, and the fix.

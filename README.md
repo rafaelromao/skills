@@ -8,4 +8,4 @@ A symlink at `~/.agents/skills/<skill-name> → ~/projects/skills/<skill-name>` 
 
 ### [`validate-tickets/`](validate-tickets/)
 
-The single source of truth for *what a well-formed ticket is*. Audits every open ticket in a Wayfinder tracker against the eleven invariants in `INVARIANTS.md`, produces a gap map of (current state) vs (should-be state), and asks the user before refactoring any tickets. Use after `/to-spec` or `/to-tickets`, when the user asks whether a tracker is consistent, or when the user asks whether a planned ticket is a vertical slice. Default branch is **report-only** — never mutates without explicit approval.
+The single source of truth for *what a well-formed ticket is*. Audits every open ticket in a Wayfinder tracker against the invariants in `INVARIANTS.md`, produces a gap map of (current state) vs (should-be state), and asks the user before refactoring any tickets. Default branch is **report-only** — never mutates without explicit approval. User-invoked.
